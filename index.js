@@ -28,11 +28,11 @@ async function loadServerList() {
 
 async function saveServerList(serverList) {
   saveNbt.parsed.value.servers.value.value = serverList.map(server => server.entry);
-  const buffer = await nbt.writeUncompressed(saveNbt.parsed);
+  const buffer = nbt.writeUncompressed(saveNbt.parsed);
   await writeFile(filePath, buffer);
 };
 
-function join(username, ip, port, version) {
+function join(username, auth, ip, port, version) {
   return new Promise(async (resolve, reject) => {
     let endTimeout = setTimeout(() => resolve(null), 6000);
 
@@ -41,35 +41,42 @@ function join(username, ip, port, version) {
       port,
       version,
       username,
-      auth: 'microsoft',
+      auth,
       profilesFolder: './'
     })
 
     bot.on('login', async () => {
-      clearTimeout(endTimeout);
       bot.end();
       resolve(false);
-      endTimeout = setTimeout(() => {
-        bot.end();
-        resolve(false);
-      }, 3000);
     });
-    bot.on('chat', (username, message) => { 
-      if (bot.username != username) return;
-      clearTimeout(endTimeout);
-      bot.end();
-      resolve(false);
-    })
 
-    // Log errors and kick reasons:
     bot.on('kicked', (reason) => {
       if (typeof reason == 'object') reason = JSON.stringify(reason);
-      // console.log(`Kicked from ${ip}:${port}`, reason);
-      if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) resolve(true);
-      else resolve(null);
+      //console.log(`Kicked from ${ip}:${port}`, reason);
+
+      if (auth === 'microsoft') {
+        if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) {
+          resolve(true);
+          return;
+        };
+      }
+      else {
+        if (reason.includes('Failed to verify username!') || reason.includes('multiplayer.disconnect.unverified_username')) {
+          resolve(true);
+          return;
+        };
+        //maybe some very smart person would turn on whitelist but on a cracked server...
+        if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) {
+          resolve(false);
+          return;
+        }
+      }
+
+      resolve(null);
     });
+
     bot.on('error', (err) => {
-      // console.log(`Error on ${ip}:${port} ${version}`, err);
+      //console.log(`Error on ${ip}:${port} ${version}`, err);
       if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) resolve('retry');
       else resolve(null);
     });
@@ -86,6 +93,7 @@ async function scan() {
 
   async function check(server) {
     const username = config.username;
+    const serverIndex = serverList.indexOf(server);
 
     if (!server.name.includes("Re:SS")) return;
 
@@ -93,35 +101,72 @@ async function scan() {
     const port = portStr ? parseInt(portStr) : 25565;
 
     const slp = await ping(ip, port, 0);
-    if (typeof slp == 'string' || slp?.version?.protocol == null) return;
+    if (typeof slp == 'string' || slp?.version?.protocol == null) {
+      if (config.deleteOffline) serverList.splice(serverIndex, 1);
+      return;
+    };
     const version = versions.find(a => a.version == slp.version.protocol);
     if (version == null) return;
-    let result;
+
+    let noncrackedResult;
+    let whitelistResult;
+
+    if (config.crackedIntent != null) {
+      try {
+        noncrackedResult = await join(username, 'offline', ip, port, version.minecraftVersion);
+      } catch (err) {
+        console.log(`Bot error on ${ip}:${port}`, err);
+        whitelistResult = null;
+      }
+      while (noncrackedResult == 'retry') {
+        try {
+          noncrackedResult = await join(username, ip, port, version.minecraftVersion);
+        } catch (err) {
+          console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
+          noncrackedResult = 'retry';
+        }
+        await new Promise(res => setTimeout(res, 1000));
+      }
+    }
+
+    if (noncrackedResult === true && config.whitelistIntent === true) {
+      serverList.splice(serverIndex, 1);
+    }
+
+    if (noncrackedResult === false && config.whitelistIntent === false) {
+      if (server.entry.name.value.includes("Cracked")) return;
+      server.entry.name.value += " Cracked";
+    }
+
+    if (config.whitelistIntent == null) return;
+    
     try {
-      result = await join(username, ip, port, version.minecraftVersion);
+      whitelistResult = await join(username, 'microsoft', ip, port, version.minecraftVersion);
     } catch (err) {
       console.log(`Bot error on ${ip}:${port}`, err);
-      result = null;
+      whitelistResult = null;
     }
-    while (result == 'retry') {
+    while (whitelistResult == 'retry') {
       try {
-        result = await join(username, ip, port, version.minecraftVersion);
+        whitelistResult = await join(username, ip, port, version.minecraftVersion);
       } catch (err) {
         console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
-        result = 'retry';
+        whitelistResult = 'retry';
       }
       await new Promise(res => setTimeout(res, 1000));
     }
 
-    if (result === true) {
-      const index = serverList.indexOf(server);
-      if (index !== -1) {
-        if (config.removeWhitelisted) serverList.splice(index, 1);
-        else server.entry.name.value += " Whitelisted";
-      }
+    if (whitelistResult === true) {
+      if (config.whitelistIntent) serverList.splice(serverIndex, 1);
+      if (server.entry.name.value.includes("Whitelisted")) return;
+      else server.entry.name.value += " Whitelisted";
     }
 
-    if (result != null) console.log(`${ip}:${port} ${version.minecraftVersion} ${result} ${(new Date().getTime() - lastResult) / 1000}s`);
+    //not sure if it ever gets here, will leave it just in case
+    if (noncrackedResult == null && whitelistResult == null && config.deleteOffline) {
+      serverList.splice(serverIndex, 1);
+    }
+    //if (result != null) console.log(`${ip}:${port} ${version.minecraftVersion} ${result} ${(new Date().getTime() - lastResult) / 1000}s`);
   }
 
   const serverCount = serverList.length;
@@ -144,7 +189,5 @@ async function scan() {
 
 scan();
 
-// TODO: Create different checks with config
-// Also scan with cracked version (can keep the name)
+// TODO:
 // Try multithreading the process possibly?
-// instead of "starting..." add: "saving config"
