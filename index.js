@@ -52,7 +52,7 @@ function join(username, auth, ip, port, version) {
 
     bot.on('kicked', (reason) => {
       if (typeof reason == 'object') reason = JSON.stringify(reason);
-      //console.log(`Kicked from ${ip}:${port}`, reason);
+      console.log(`Kicked from ${ip}:${port}`, reason);
 
       if (auth === 'microsoft') {
         if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) {
@@ -76,8 +76,12 @@ function join(username, auth, ip, port, version) {
     });
 
     bot.on('error', (err) => {
-      //console.log(`Error on ${ip}:${port} ${version}`, err);
-      if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) resolve('retry');
+      console.log(`Error on ${ip}:${port} ${version}`, err);
+      if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) {
+        resolve('retry');
+        return;
+      };
+      if (err.message.includes('multiplayer.disconnect.outdated_client') || err.message.includes('ECONNRESET')) resolve('unsupported');
       else resolve(null);
     });
   });
@@ -116,13 +120,13 @@ async function scan() {
         noncrackedResult = await join(username, 'offline', ip, port, version.minecraftVersion);
       } catch (err) {
         console.log(`Bot error on ${ip}:${port}`, err);
-        whitelistResult = null;
+        noncrackedResult = null;
       }
       while (noncrackedResult == 'retry') {
         try {
           noncrackedResult = await join(username, ip, port, version.minecraftVersion);
         } catch (err) {
-          console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
+          //console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
           noncrackedResult = 'retry';
         }
         await new Promise(res => setTimeout(res, 1000));
@@ -132,10 +136,16 @@ async function scan() {
     if (noncrackedResult === true && config.crackedIntent === true) {
       serverList.splice(serverIndex, 1);
     }
-    
+
     if (noncrackedResult === false && config.crackedIntent === false) {
       if (server.entry.name.value.includes("Cracked")) return;
       server.entry.name.value += " Cracked";
+    }
+
+    if (noncrackedResult === 'unsupported') {
+      if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
+      else server.entry.name.value += " UNSUPPORTEDVERSION";
+      return;
     }
 
     if (config.whitelistIntent == null) return;
@@ -160,6 +170,12 @@ async function scan() {
       if (config.whitelistIntent) serverList.splice(serverIndex, 1);
       if (server.entry.name.value.includes("Whitelisted")) return;
       else server.entry.name.value += " Whitelisted";
+    }
+
+    if (whitelistResult === 'unsupported') {
+      if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
+      else server.entry.name.value += " UNSUPPORTEDVERSION";
+      return;
     }
 
     //not sure if it ever gets here, will leave it just in case
