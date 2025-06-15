@@ -129,11 +129,11 @@ async function scan() {
       }
     }
 
-    if (noncrackedResult === true && config.whitelistIntent === true) {
+    if (noncrackedResult === true && config.crackedIntent === true) {
       serverList.splice(serverIndex, 1);
     }
-
-    if (noncrackedResult === false && config.whitelistIntent === false) {
+    
+    if (noncrackedResult === false && config.crackedIntent === false) {
       if (server.entry.name.value.includes("Cracked")) return;
       server.entry.name.value += " Cracked";
     }
