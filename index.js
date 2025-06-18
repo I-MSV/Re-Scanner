@@ -12,6 +12,9 @@ const writeFile = util.promisify(fs.writeFile);
 const filePath = path.join(config.saveDirectory, 'servers.dat');
 
 let saveNbt;
+let serverList;
+let exiting;
+let cancel;
 
 async function loadServerList() {
   const buffer = await readFile(filePath);
@@ -27,6 +30,8 @@ async function loadServerList() {
 }
 
 async function saveServerList(serverList) {
+  if (!saveNbt) return;
+
   saveNbt.parsed.value.servers.value.value = serverList.map(server => server.entry);
   const buffer = nbt.writeUncompressed(saveNbt.parsed);
   await writeFile(filePath, buffer);
@@ -47,7 +52,10 @@ function join(username, auth, ip, port, version) {
 
     bot.on('login', async () => {
       bot.end();
-      resolve(false);
+      clearTimeout(endTimeout);
+      endTimeout = setTimeout(() => {
+        resolve(false);
+      }, 3000);
     });
 
     bot.on('kicked', (reason) => {
@@ -76,7 +84,7 @@ function join(username, auth, ip, port, version) {
     });
 
     bot.on('error', (err) => {
-      console.log(`Error on ${ip}:${port} ${version}`, err);
+      //console.log(`Error on ${ip}:${port} ${version}`, err);
       if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) {
         resolve('retry');
         return;
@@ -90,7 +98,8 @@ function join(username, auth, ip, port, version) {
 lastResult = new Date().getTime();
 async function scan() {
   console.log("Loading server list");
-  const serverList = await loadServerList();
+  serverList = await loadServerList();
+  const toDelete = new Set();
 
   console.log("Fetching versions");
   const versions = await (await fetch('https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/common/protocolVersions.json')).json();
@@ -106,9 +115,10 @@ async function scan() {
 
     const slp = await ping(ip, port, 0);
     if (typeof slp == 'string' || slp?.version?.protocol == null) {
-      if (config.deleteOffline) serverList.splice(serverIndex, 1);
+      if (config.deleteOffline) toDelete.add(server);
       return;
     };
+
     const version = versions.find(a => a.version == slp.version.protocol);
     if (version == null) return;
 
@@ -180,7 +190,7 @@ async function scan() {
 
     //not sure if it ever gets here, will leave it just in case
     if (noncrackedResult == null && whitelistResult == null && config.deleteOffline) {
-      serverList.splice(serverIndex, 1);
+      toDelete.add(server);
     }
     //if (result != null) console.log(`${ip}:${port} ${version.minecraftVersion} ${result} ${(new Date().getTime() - lastResult) / 1000}s`);
   }
@@ -189,21 +199,35 @@ async function scan() {
   //i know i could just use array method i dont care...
   let i = 1;
   for (const server of serverList) {
+    if (cancel) break;
     console.log(`Checking server ${i}/${serverCount}`);
     await check(server);
     i++;
   }
 
-  if (config.repeat) setTimeout(scan, 0);
-  else {
-    console.log("Saving server list");
-    await saveServerList(serverList);
-    console.log("Done!");
-    process.exit();
-  }
+  serverList = serverList.filter(server => !toDelete.has(server));
+
+  console.log("Saving server list");
+  await saveServerList(serverList);
+  console.log("Done!");
+  process.exit();
 }
+
+function exit() {
+  //just to prevent "Cancelling" overriding the other text probably
+  if (exiting) return;
+  exiting = true;
+
+  console.log("Cancelling");
+  cancel = true;
+}
+
+//on any stdin
+process.stdin.on('data', exit)
 
 scan();
 
 // TODO:
 // Try multithreading the process possibly?
+// add option to rescan servers that already contain (whitelist) or (cracked), otherwise ignore them
+// separate cracked scanning and whitelist scanning, cracked full speed whitelist with delay
