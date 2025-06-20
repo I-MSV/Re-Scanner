@@ -188,7 +188,8 @@ async function scan() {
       output += `Whitelist scanned ${whitelistScanned}/${serverAmount}`;
     }
     if (config.crackedIntent != null) {
-      output += `\nCracked scanned ${crackedScanned}/${serverAmount}`;
+      if (output !== "") output += " | ";
+      output += `Cracked scanned ${crackedScanned}/${serverAmount}`;
     }
 
     console.log(output);
