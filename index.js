@@ -5,6 +5,7 @@ const ping = require('./ping.js');
 const nbt = require('prismarine-nbt');
 const util = require('util');
 const config = require('./config.json');
+const pLimit = require('p-limit');
 
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
@@ -52,6 +53,11 @@ function join(username, auth, ip, port, version) {
 
     bot.on('login', async () => {
       bot.end();
+      if (auth === 'offline') {
+        resolve(false);
+        return;
+      }
+
       clearTimeout(endTimeout);
       endTimeout = setTimeout(() => {
         resolve(false);
@@ -104,11 +110,9 @@ async function scan() {
   console.log("Fetching versions");
   const versions = await (await fetch('https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/common/protocolVersions.json')).json();
 
-  async function check(server) {
+  async function check(server, mode, intent) {
     const username = config.username;
     const serverIndex = serverList.indexOf(server);
-
-    if (!server.name.includes("Re:SS")) return;
 
     const [ip, portStr] = server.ip.split(":");
     const port = portStr ? parseInt(portStr) : 25565;
@@ -122,89 +126,94 @@ async function scan() {
     const version = versions.find(a => a.version == slp.version.protocol);
     if (version == null) return;
 
-    let noncrackedResult;
-    let whitelistResult;
+    let result;
+    const auth = mode === "cracked" ? "offline" : "microsoft";
 
-    if (config.crackedIntent != null) {
-      try {
-        noncrackedResult = await join(username, 'offline', ip, port, version.minecraftVersion);
-      } catch (err) {
-        console.log(`Bot error on ${ip}:${port}`, err);
-        noncrackedResult = null;
-      }
-      while (noncrackedResult == 'retry') {
-        try {
-          noncrackedResult = await join(username, ip, port, version.minecraftVersion);
-        } catch (err) {
-          //console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
-          noncrackedResult = 'retry';
-        }
-        await new Promise(res => setTimeout(res, 1000));
-      }
-    }
-
-    if (noncrackedResult === true && config.crackedIntent === true) {
-      serverList.splice(serverIndex, 1);
-    }
-
-    if (noncrackedResult === false && config.crackedIntent === false) {
-      if (server.entry.name.value.includes("Cracked")) return;
-      server.entry.name.value += " Cracked";
-    }
-
-    if (noncrackedResult === 'unsupported') {
-      if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
-      else server.entry.name.value += " UNSUPPORTEDVERSION";
-      return;
-    }
-
-    if (config.whitelistIntent == null) return;
-    
     try {
-      whitelistResult = await join(username, 'microsoft', ip, port, version.minecraftVersion);
+      result = await join(username, auth, ip, port, version.minecraftVersion);
     } catch (err) {
       console.log(`Bot error on ${ip}:${port}`, err);
-      whitelistResult = null;
+      result = null;
     }
-    while (whitelistResult == 'retry') {
+    while (result == 'retry') {
       try {
-        whitelistResult = await join(username, ip, port, version.minecraftVersion);
+        result = await join(username, auth, ip, port, version.minecraftVersion);
       } catch (err) {
-        console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
-        whitelistResult = 'retry';
+        //console.log(`Error on ${ip}:${port} ${slp.version.protocol}`, err);
+        result = 'retry';
       }
       await new Promise(res => setTimeout(res, 1000));
     }
 
-    if (whitelistResult === true) {
-      if (config.whitelistIntent) serverList.splice(serverIndex, 1);
-      if (server.entry.name.value.includes("Whitelisted")) return;
-      else server.entry.name.value += " Whitelisted";
+    if (result === true && intent === true) {
+      toDelete.add(server);
     }
 
-    if (whitelistResult === 'unsupported') {
+    if (result === false && intent === false) {
+      if (server.entry.name.value.includes(mode)) return;
+      server.entry.name.value += ` ${mode}`;
+    }
+
+    if (result === 'unsupported') {
       if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
       else server.entry.name.value += " UNSUPPORTEDVERSION";
       return;
     }
 
     //not sure if it ever gets here, will leave it just in case
-    if (noncrackedResult == null && whitelistResult == null && config.deleteOffline) {
+    if (result == null && config.deleteOffline) {
       toDelete.add(server);
     }
     //if (result != null) console.log(`${ip}:${port} ${version.minecraftVersion} ${result} ${(new Date().getTime() - lastResult) / 1000}s`);
   }
 
-  const serverCount = serverList.length;
-  //i know i could just use array method i dont care...
-  let i = 1;
-  for (const server of serverList) {
-    if (cancel) break;
-    console.log(`Checking server ${i}/${serverCount}`);
-    await check(server);
-    i++;
+  //filter before scanning serverlist
+  serverList = serverList.filter(server => server.name.includes('Re:SS'));
+  
+  if (config.ignoreRescanned) {
+    serverList = serverList.filter(server => !server.name.includes('Whitelisted') && !server.name.includes('Cracked'))
   }
 
+  const serverAmount = serverList.length;
+  let crackedScanned = 0;
+  let whitelistScanned = 0;
+
+  let crackedTasks = [];
+  const limit = pLimit(5);
+
+  function updateScanLog() {
+    let output = "";
+    if (config.whitelistIntent != null) {
+      output += `Whitelist scanned ${whitelistScanned}/${serverAmount}`;
+    }
+    if (config.crackedIntent != null) {
+      output += `\nCracked scanned ${crackedScanned}/${serverAmount}`;
+    }
+
+    console.log(output);
+  }
+
+  if (config.crackedIntent != null) {
+    crackedTasks = serverList.map(server => limit(async() => {
+      if (cancel) return;
+      crackedScanned++;
+      updateScanLog();
+      return check(server, "cracked", config.crackedIntent);
+    }));
+  }
+
+  if (config.whitelistIntent != null) {
+    for (const server of serverList) {
+      if (cancel) break;
+      await check(server, "whitelisted", config.whitelistIntent);
+      whitelistScanned++;
+
+      updateScanLog();
+    }
+  }
+
+  await Promise.all(crackedTasks);
+  
   serverList = serverList.filter(server => !toDelete.has(server));
 
   console.log("Saving server list");
@@ -226,8 +235,3 @@ function exit() {
 process.stdin.on('data', exit)
 
 scan();
-
-// TODO:
-// Try multithreading the process possibly?
-// add option to rescan servers that already contain (whitelist) or (cracked), otherwise ignore them
-// separate cracked scanning and whitelist scanning, cracked full speed whitelist with delay
