@@ -197,9 +197,10 @@ async function scan() {
   if (config.crackedIntent != null) {
     crackedTasks = serverList.map(server => limit(async() => {
       if (cancel) return;
+      const result = await check(server, "cracked", config.crackedIntent);
       crackedScanned++;
       updateScanLog();
-      return check(server, "cracked", config.crackedIntent);
+      return result;
     }));
   }
 
