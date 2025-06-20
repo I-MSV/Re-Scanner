@@ -98,7 +98,7 @@ function join(username, auth, ip, port, version) {
     });
 
     bot.on('error', (err) => {
-      console.log(`Error on ${ip}:${port} ${version}`, err);
+      //console.log(`Error on ${ip}:${port} ${version}`, err);
       if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) {
         resolve('retry');
         return;
@@ -141,7 +141,7 @@ async function scan() {
     try {
       result = await join(username, auth, ip, port, version.minecraftVersion);
     } catch (err) {
-      console.log(`Bot error on ${ip}:${port}`, err);
+      //console.log(`Bot error on ${ip}:${port}`, err);
       result = null;
     }
     while (result == 'retry') {
@@ -154,17 +154,25 @@ async function scan() {
       await new Promise(res => setTimeout(res, 1000));
     }
 
-    if (result === true) {
-      if (intent === true) {
-        toDelete.add(server);
-      }
-      else {
+    //they have different logics, cracked deletes non cracked servers for example
+    if (auth === "offline") {
+      if (result === false && intent === true) toDelete.add(server);
+      if (result === true && intent === false) {
         if (server.entry.name.value.includes(mode)) return;
         server.entry.name.value += ` ${mode}`;
       }
     }
-
+    else {
+      if (result === true) {
+        if (intent === true) toDelete.add(server);
+        else {
+          if (server.entry.name.value.includes(mode)) return;
+          server.entry.name.value += ` ${mode}`;
+        }
+      }
+    }
     if (result === 'unsupported') {
+      if (config.deleteUnsupported) toDelete.add(server);
       if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
       else server.entry.name.value += " UNSUPPORTEDVERSION";
       return;
