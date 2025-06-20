@@ -54,7 +54,7 @@ function join(username, auth, ip, port, version) {
     bot.on('login', async () => {
       bot.end();
       if (auth === 'offline') {
-        resolve(false);
+        resolve(true);
         return;
       }
 
@@ -66,7 +66,7 @@ function join(username, auth, ip, port, version) {
 
     bot.on('kicked', (reason) => {
       if (typeof reason == 'object') reason = JSON.stringify(reason);
-      console.log(`Kicked from ${ip}:${port}`, reason);
+      //console.log(`Kicked from ${ip}:${port}`, reason);
 
       if (auth === 'microsoft') {
         if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) {
@@ -76,12 +76,12 @@ function join(username, auth, ip, port, version) {
       }
       else {
         if (reason.includes('Failed to verify username!') || reason.includes('multiplayer.disconnect.unverified_username')) {
-          resolve(true);
+          resolve(false);
           return;
         };
         //maybe some very smart person would turn on whitelist but on a cracked server...
         if (reason.includes('You are not whitelisted on this server') || reason.includes('multiplayer.disconnect.not_whitelisted')) {
-          resolve(false);
+          resolve(true);
           return;
         }
       }
@@ -145,13 +145,14 @@ async function scan() {
       await new Promise(res => setTimeout(res, 1000));
     }
 
-    if (result === true && intent === true) {
-      toDelete.add(server);
-    }
-
-    if (result === false && intent === false) {
-      if (server.entry.name.value.includes(mode)) return;
-      server.entry.name.value += ` ${mode}`;
+    if (result === true) {
+      if (intent === true) {
+        toDelete.add(server);
+      }
+      else {
+        if (server.entry.name.value.includes(mode)) return;
+        server.entry.name.value += ` ${mode}`;
+      }
     }
 
     if (result === 'unsupported') {
