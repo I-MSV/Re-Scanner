@@ -172,7 +172,7 @@ async function scan() {
       }
     }
     if (result === 'unsupported') {
-      if (config.deleteUnsupported) toDelete.add(server);
+      if (config.deleteUnsupported === true) toDelete.add(server);
       if (server.entry.name.value.includes("UNSUPPORTEDVERSION")) return;
       else server.entry.name.value += " UNSUPPORTEDVERSION";
       return;
