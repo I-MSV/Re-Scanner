@@ -14,6 +14,7 @@ const filePath = path.join(config.saveDirectory, 'servers.dat');
 
 let saveNbt;
 let serverList;
+let serversToScan;
 let exiting;
 let cancel;
 
@@ -105,6 +106,7 @@ lastResult = new Date().getTime();
 async function scan() {
   console.log("Loading server list");
   serverList = await loadServerList();
+  serversToScan = serverList;
   const toDelete = new Set();
 
   console.log("Fetching versions");
@@ -169,13 +171,13 @@ async function scan() {
   }
 
   //filter before scanning serverlist
-  serverList = serverList.filter(server => server.name.includes('Re:SS'));
+  serversToScan = serverList.filter(server => server.name.includes('Re:SS'));
   
   if (config.ignoreRescanned) {
-    serverList = serverList.filter(server => !server.name.includes('Whitelisted') && !server.name.includes('Cracked'))
+    serversToScan = serversToScan.filter(server => !server.name.includes('whitelisted') && !server.name.includes('cracked'))
   }
 
-  const serverAmount = serverList.length;
+  const serverAmount = serversToScan.length;
   let crackedScanned = 0;
   let whitelistScanned = 0;
 
@@ -196,7 +198,7 @@ async function scan() {
   }
 
   if (config.crackedIntent != null) {
-    crackedTasks = serverList.map(server => limit(async() => {
+    crackedTasks = serversToScan.map(server => limit(async() => {
       if (cancel) return;
       const result = await check(server, "cracked", config.crackedIntent);
       crackedScanned++;
@@ -206,7 +208,7 @@ async function scan() {
   }
 
   if (config.whitelistIntent != null) {
-    for (const server of serverList) {
+    for (const server of serversToScan) {
       if (cancel) break;
       await check(server, "whitelisted", config.whitelistIntent);
       whitelistScanned++;
