@@ -42,15 +42,22 @@ async function saveServerList(serverList) {
 function join(username, auth, ip, port, version) {
   return new Promise(async (resolve, reject) => {
     let endTimeout = setTimeout(() => resolve(null), 6000);
+    let bot;
 
-    const bot = mineflayer.createBot({
-      host: ip,
-      port,
-      version,
-      username,
-      auth,
-      profilesFolder: './'
-    })
+    try {
+      bot = mineflayer.createBot({
+        host: ip,
+        port,
+        version,
+        username,
+        auth,
+        profilesFolder: './'
+      })
+    }
+    catch (err) {
+      resolve('unsupported');
+      return;
+    }
 
     bot.on('login', async () => {
       bot.end();
@@ -91,7 +98,7 @@ function join(username, auth, ip, port, version) {
     });
 
     bot.on('error', (err) => {
-      //console.log(`Error on ${ip}:${port} ${version}`, err);
+      console.log(`Error on ${ip}:${port} ${version}`, err);
       if (err.message.includes('RateLimiter disallowed request') || err.message.includes('Failed to obtain profile data')) {
         resolve('retry');
         return;
