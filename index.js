@@ -4,22 +4,29 @@ const mineflayer = require('mineflayer');
 const ping = require('./ping.js');
 const nbt = require('prismarine-nbt');
 const util = require('util');
-const config = require('./config.json');
 const pLimit = require('p-limit');
 
 const readFile = util.promisify(fs.readFile);
 const writeFile = util.promisify(fs.writeFile);
 
-const filePath = path.join(config.saveDirectory, 'servers.dat');
+const configFilePath = path.join(__dirname, 'config.json');
 
+let serverFilePath;
+let config;
 let saveNbt;
 let serverList;
 let serversToScan;
 let exiting;
 let cancel;
 
+async function loadConfig() {
+  const buffer = await readFile(configFilePath)
+  return JSON.parse(buffer);
+}
+
 async function loadServerList() {
-  const buffer = await readFile(filePath);
+  serverFilePath = path.join(config.saveDirectory, 'servers.dat');
+  const buffer = await readFile(serverFilePath);
   const data = await nbt.parse(buffer);
   saveNbt = data;
 
@@ -36,7 +43,7 @@ async function saveServerList(serverList) {
 
   saveNbt.parsed.value.servers.value.value = serverList.map(server => server.entry);
   const buffer = nbt.writeUncompressed(saveNbt.parsed);
-  await writeFile(filePath, buffer);
+  await writeFile(serverFilePath, buffer);
 };
 
 function join(username, auth, ip, port, version) {
@@ -111,6 +118,8 @@ function join(username, auth, ip, port, version) {
 
 lastResult = new Date().getTime();
 async function scan() {
+  console.log("Loading config");
+  config = await loadConfig();
   console.log("Loading server list");
   serverList = await loadServerList();
   serversToScan = serverList;
