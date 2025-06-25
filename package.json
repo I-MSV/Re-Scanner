@@ -1,4 +1,10 @@
 {
+  "main": "build/index.js",
+  "targets": {
+    "main": {
+      "includeNodeModules": true
+    }
+  },
   "dependencies": {
     "minecraft-data": "^3.89.0",
     "mineflayer": "^4.29.0",
